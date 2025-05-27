@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>WebSocket Chat</title>
+    <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@7.0.5/dist/browser/signalr.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        #chat { border: 1px solid #ccc; height: 300px; overflow-y: scroll; margin-bottom: 10px; padding: 10px; }
+        #users { margin-bottom: 10px; }
+        #images { margin-bottom: 10px; }
+        .message { margin: 5px 0; }
+        .image-msg img { max-width: 100px; max-height: 100px; }
+    </style>
+</head>
+<body>
+    <h2>WebSocket Chat</h2>
+    <div id="users"></div>
+    <div id="images"></div>
+    <div id="chat"></div>
+    <input type="text" id="userInput" placeholder="Your name" />
+    <input type="text" id="messageInput" placeholder="Type a message..." />
+    <button id="sendBtn">Send</button>
+    <button id="sendImgBtn">Send Random Image</button>
+    <script>
+        // Connect to SignalR hub
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("http://localhost:5167/chathub", {
+                transport: signalR.HttpTransportType.WebSockets | signalR.HttpTransportType.LongPolling
+            })
+            .build();
+
+        connection.on("ReceiveMessage", (user, message) => {
+            const chat = document.getElementById("chat");
+            chat.innerHTML += `<div class='message'><b>${user}:</b> ${message}</div>`;
+            chat.scrollTop = chat.scrollHeight;
+        });
+
+        connection.on("ReceiveImage", (user, imageUrl) => {
+            const chat = document.getElementById("chat");
+            chat.innerHTML += `<div class='message image-msg'><b>${user}:</b> <img src='${imageUrl}' /></div>`;
+            chat.scrollTop = chat.scrollHeight;
+        });
+
+        connection.start().catch(err => {
+            console.error("SignalR connection error:", err);
+            alert("Could not connect to chat server. Please ensure the backend is running.");
+        });
+
+        document.getElementById("sendBtn").onclick = function () {
+            const user = document.getElementById("userInput").value || "Anonymous";
+            const message = document.getElementById("messageInput").value;
+            if (message) {
+                connection.invoke("SendMessage", user, message).catch(err => console.error(err));
+                document.getElementById("messageInput").value = "";
+            }
+        };
+
+        // Fetch random users
+        fetch("/api/proxy/users")
+            .then(res => res.json())
+            .then(data => {
+                const usersDiv = document.getElementById("users");
+                usersDiv.innerHTML = "<b>Random Users:</b> " + data.results.map(u => u.name.first).join(", ");
+            })
+            .catch(err => {
+                document.getElementById("users").innerHTML = "<b>Random Users:</b> (error loading)";
+                console.error(err);
+            });
+
+        // Fetch random images
+        let images = [];
+        fetch("/api/proxy/images")
+            .then(res => res.json())
+            .then(data => {
+                images = data;
+                const imagesDiv = document.getElementById("images");
+                imagesDiv.innerHTML = "<b>Random Images:</b> " + data.slice(0, 5).map(img => `<img src='${img.download_url}' width='50' />`).join(" ");
+            })
+            .catch(err => {
+                document.getElementById("images").innerHTML = "<b>Random Images:</b> (error loading)";
+                console.error(err);
+            });
+
+        document.getElementById("sendImgBtn").onclick = function () {
+            const user = document.getElementById("userInput").value || "Anonymous";
+            if (images.length > 0) {
+                const img = images[Math.floor(Math.random() * images.length)];
+                connection.invoke("SendImage", user, img.download_url).catch(err => console.error(err));
+            }
+        };
+
+        // Ensure CORS is enabled on backend (Program.cs):
+        // app.UseCors();
+    </script>
+</body>
+</html>
